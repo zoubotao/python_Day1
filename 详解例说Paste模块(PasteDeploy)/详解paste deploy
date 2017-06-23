@@ -114,3 +114,40 @@ use = myotherapp
 
 最后指向其他的section的那个例子，看起来似乎没有什么意义，似乎只是两个相同的WSGI应用。
 但是这样的定义允许我们在[app:mylastapp]这个应用中定义一些局部的配置项，从而在重用代码的同时覆写它引用的应用配置。
+
+
+
+补充：
+1.
+[app:main]   # 意思是只有一个app，所以就叫main，其实叫别的也无所谓。
+use=egg:MyAPP  # egg其实是一个程序包，是需要单独安装的东西。egg包是目前最流行的python应用打包部署方式。
+2.
+[composite:main]  # composite是paste中的一个模块
+use = egg:Paste#urlmap  # 意思是用Paste egg包中的urlmap，就是Paste用egg打过包了，所以这么用。
+3.
+[app:wiki]
+use = call:mywiki.main:application  # call(表示使用call方法):模块的完整路径名字:应用变量的完整名字，
+                                    # 即调用了application的__call__(global,**kawrgs)
+4.
+[app:myfacapp]
+paste.app_factory = myapp.modulename:app_factory  # paste.app_factory，意思是调用了my.modulename.py的app_factory的方法，
+                                                  # 该方法的参数为app_factory(global_conf,**local_conf)，在该方法中会返回一个app，
+                                                  # 这个app是一个可调用对象，就是有__call__。注意paste.app_factory必须这样写，
+                                                  # 但是调用的可以不叫app_factory
+5.
+同理的paste.fileter_factory是一样的。
+6.
+wsgi的使用流程和注意事项：
+from paste.deploy import loadapp
+from wsgiref.simple_server import make_server
+if __name__== '__main__':
+    configfile="serverconf.ini"  # 这里是其他程序里的，所以是这样
+    appname="pd1"  # 这里也不是必须的
+    wsgi_app=loadapp("config:%s" % os.path.abspath(configfile),appname)  # 注意必须使用路径
+    server=make_server('192.168.1.104',8080,wsgi_app)
+    server.serve_forever()
+    pass
+
+#首先当调用Loadapp时就会执行conf中的app_factory方法，并会在该方法中的return app时，调用该app的init程序。
+#但是不会返回和调用__call__方法。然后会不停的等待。只有当接收到请求时，才会执行该__call__方法。方法返回后__init__不会退出。
+#下次请求时，不会执行__init__了。只会执行__call__方法。
