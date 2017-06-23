@@ -1,0 +1,116 @@
+谈到WSGI，就免不了要了解paste，其中paste deploy是用来发现和配置WSGI应用的一套系统，对于WSGI应用的使用者而言，
+可以方便的从配置文件汇总加载WSGI应用（loadapp）；对于WSGI应用的开发人员而言，只需要给自己的应用提供一套简单的入口点即可。
+
+PasteDeploy的官方文档地址：http://pythonpaste.org/deploy/
+
+下列的词语每组内的等价：
+1. 应用，app，application；
+2. 过滤器，filter；
+3. 管道，pipeline；
+4. 工厂函数，factory；
+5. 组合，composite；
+6. 类型，type；
+7. 段，section
+
+一、PasteDeploy配置文件格式
+
+PasteDeploy配置文件由若干的section组成，section的声明格式如下：
+[type:name]
+其中，方括号括起的section声明一个新section的开始，section的声明由两部分组成，section的类型（type）和section的名称（name），
+如，[app:main]等。section的type可以有app、composite、filter、pipeline、filter-app等。
+每一个section中具体配置项的格式就是基本的ini格式：key = value，所有从PasteDeploy配置文件中提取的参数键、值都以字符串的形式传入底层实现。
+此外，PasteDeploy的配置文件中使用"#"标注注释。
+
+二、PasteDeploy中section的不同type
+
+示例1：PasteDeploy配置文件
+[composite:main]
+use = egg:Paste#urlmap
+/ = home
+/blog = blog
+/wiki = wiki
+/cms = config:cms.ini
+
+[app:home]
+use = egg:Paste#static
+document_root = %(here)s/htdocs
+
+[app:wiki]
+use = call:mywiki.main:application
+database = sqlite:/home/me/wiki.db
+
+[filter-app:blog]
+use = egg:Authentication#auth
+next = blogapp
+roles = admin
+htpasswd = /home/me/users.htpasswd
+
+[app:blogapp]
+use = egg:BlogApp
+database = sqlite:/home/me/blog.db
+
+[app:main]
+use = egg:MyEgg
+filter-with = printdebug
+
+[filter:printdebug]
+use = egg:Paste#printdebug
+
+[pipeline:main]
+pipeline = filter1 filter2 filter3 app
+...
+
+上面的示例文件列出若干不同type的section示意，下面一一探讨PasteDeploy可定义的section type。
+
+2.1 Type = composite（组合应用）
+顾名思义，组合应用由若干WSGI应用组成，composite为这些应用提供更高一层的分配工作。
+[composite:main]
+use = egg:Paste#urlmap
+/ = home
+/blog = blog
+/wiki = wiki
+/cms = config:cms.ini
+该段配置文件定义了一个名为main、类型为composite的section，方括号的声明以下是该section的具体配置，遵循key = value的统一格式。
+composite类型的section将URL请求分配给其他的WSGI应用。use = egg:Paste#urlmap 意味着使用Paste包中的urlmap应用。
+urlmap是Paste提供的一套通用的composite应用，作用就是根据用户请求的URL前缀，将用户请求映射到对应的WSGI应用上去。
+这里的WSGI应用由："home"，"blog"，"wiki"和"config:cms.ini"。
+最后一项仅仅是参考了同一个目录中的另一个文件"cms.ini"
+
+2.2 Type = app（WSGI应用）
+[app:home]
+use = egg:Paste#static
+document_root = %(here)s/htdocs
+
+[app:wiki]
+use = call:mywiki.main:application
+database = sqlite:/home/me/wiki.db
+
+app类型的section声明一个具体的WSGI应用。调用哪个个python module中的app代码则由use后的值指定。
+这里的egg:Paste#static是另一个简单应用，作用仅仅是呈现静态页面。它接收了一个配置项：document_root，
+后面的值可以从全局配置[DEFAULT](大小写敏感)中提取，提取方法是使用变量替换：如%(var_name)s的形式。
+这里%(here)s的意思是这个示例配置文件所在的目录，因为相对路径在不同服务器中的解释方法不同，出于移植性的考虑，
+官方文档上推荐当前这种写法。
+示例中定义了多个app类型的section，因为PasteDeploy的配置文件中允许定义多个app类型的section，
+同时要求每个WSGI应用也都应该拥有自己的section。这样，每一个WSGI应用在配置文件中都有一个app类型的section与之对应。
+默认的，"main"应用对应于app:main或app。
+应用的具体实现要在section中配置，有两种方法专门用于指出应用对应的代码：使用URI（用use标识）或直接指向实现代码（用protocol标识）。
+
+2.2.1 使用另一个URI
+采用该方法的特点是指出应用的实现代码的那一条 key = value 配置项采用"use"作为键，该方法有许多变种，官方的示例中给出了一些介绍：
+[app:myapp]
+use = config:another_config_file.ini#app_name
+
+#  或任意URI：
+[app:myotherapp]
+use = egg:MyApp
+
+#  或指明某个模块中的可调用：
+[app:mythirdapp]
+use = call:my.project:myapplication
+
+#  甚至是其他的section：
+[app:mylastapp]
+use = myotherapp
+
+最后指向其他的section的那个例子，看起来似乎没有什么意义，似乎只是两个相同的WSGI应用。
+但是这样的定义允许我们在[app:mylastapp]这个应用中定义一些局部的配置项，从而在重用代码的同时覆写它引用的应用配置。
