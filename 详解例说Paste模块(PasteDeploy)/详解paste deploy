@@ -115,7 +115,161 @@ use = myotherapp
 最后指向其他的section的那个例子，看起来似乎没有什么意义，似乎只是两个相同的WSGI应用。
 但是这样的定义允许我们在[app:mylastapp]这个应用中定义一些局部的配置项，从而在重用代码的同时覆写它引用的应用配置。
 
+2.2.2 直接指向应用的实现代码
+采用该方法的特点是指出实现代码的那一条 key = value 配置项采用"协议"作为键，所谓"协议"即Protocol，告诉PasteDeploy即将加载的对象类型，如：
+[app:myapp]
+paste.app_factory = myapp.modulename:app_factory
+该例的protocol paste.app_factory 是一个应用的工厂函数，指明import对象的类型；值myapp.modulename:app_factory指明具体加载的模块和方法。
+关于PasteDeploy的协议，进而可以定义的工厂函数类型，会在下文对所有section可选的type有一定的了解后再进行探讨。
 
+2.3 Type = filter（过滤器）
+filter是作用域WSGI应用上的函数或方法，以app为唯一的参数，并返回一个"过滤"后的app。归功于WSGI接口的规范，
+不同的filter可以依次"过滤"某一app，事实上多个filter处理一个app也就是下文中提到的管道(pipeline)。
+在PasteDeploy的配置文件中有多种方法来"过滤"应用：
+[app:main]
+use = egg:MyEgg
+filter-with = printdebug
+
+[filter:printdebug]
+use = egg:Paste#printdebug
+
+在[app:main]的filter-with字段指明用来处理该应用的filter，就指定了名为"printdebug"的filter来处理应用"main"。
+在[filter:printdebug]中还可以定义新的filter-with字段，从而将处理关系延续下去。
+
+2.4 Type = filter-app
+同样是处理应用，在pastedeploy配置文件中可以有着不同的写法，比如示例中的下面部分，就是使用filter-app类型的section来声明一个filter:
+[filter-app:blog]
+use = egg:Authentication#auth
+next = blogapp
+roles = admin
+htpasswd = /home/me/users.htpasswd
+
+[app:blogapp]
+use = egg:BlogApp
+database = sqlite:/home/me/blog.db
+该部分采用了[filter-app:NAME]类型的section声明了一个filter，指定使用的代码，以及要处理的应用:next字段的值。
+从而PasteDeploy会自动的将过滤器"blog"作用在应用"blogapp"上。
+
+2.5 Type = pipeline
+pipeline便于对一个应用添加多个过滤器，如示例中：
+[pipeline:main]
+pipeline = filter1 filter2 filter3 app
+就指定了在app上施加三个filter进行处理。
+总结起来，想要在某个应用前添加多个filter，共有[filter-app:...][pipeline:...]和[app:...]filter-with = ...等方法。
+
+三、局部配置与全局配置
+3.1 局部配置与全局配置的格式
+PasteDeploy配置文件的所有配置项均使用key=value格式，但是局部配置项和全局配置项定义的位置不同。如：
+[app:blog]
+use = egg:MyBlog
+database = mysql://localhost/blogdb
+blogname = This Is My Blog!
+
+[app:otherblog]
+use = blog
+blogname = The other face of my blog
+每一个section内设置具体的键值关系，构成这些section自己的局部配置。
+为了便于不同的应用读取某些固定的系统信息，PasteDeploy允许设置全局配置变量，所有的全局配置必须放在[DEFAULT]字段下设置，如：
+[DEFAULT]
+admin_email = webmaster@example.com
+
+[app:main]
+use = ...
+set admin_email = bob@example.com
+注意[DEFAULT]段名是大小写敏感的，因此必须严格大写。
+
+3.2 局部配置和全局配置的覆写
+3.1中的两个例子，实际上展示了局部配置和全局配置的覆写，这里详细介绍，首先看局部配置的覆写：
+[app:blog]
+use = egg:MyBlog
+database = mysql://localhost/blogdb
+blogname = This Is My Blog!
+
+[app:otherblog]
+use = blog
+blogname = The other face of my blog
+从2.2.1中已经知道，一些section可以直接复用其他section的代码，并制定配置信息，
+这里[app:otherblog]就采用了[app:blog]的代码，同时将配置项blogname改为自己特定的。
+另一方面，应用在本地可以修改全局配置项的值：
+[DEFAULT]
+admin_email = webmaster@example.com
+
+[app:main]
+use = ...
+set admin_email = bob@example.com
+只需要在要覆写的键前加set即可。
+
+至于为什么要探讨局部配置与全局配置，是因为二者在传递给不同类型的factory function时对应的参数不同，这些将在下文详细探讨。
+
+四、实现factory函数
+本文的第二部分探讨了PasteDeploy中的若干种"协议"，事实上对应了实现时的不同类型，
+包括paste.app_factory，paste.composite_factory，paste.filter_factory，paste.server_factory等。
+这些"协议"的value都必须是一个可调用（函数、方法、类、可调用对象等）。
+这些"协议"封装WSGI应用，使其成为app、composite、filter等类型的组件。
+
+4.1 paste.app_factory
+这是最常见的factory，接收配置参数，用来返回一个WSGI应用，第三部分中介绍的全局配置以字典的形式传入，
+局部配置则以关键字参数(keyword arguments)的形式传入。
+def app_factory(global_config, **local_conf):
+    return wsgi_app
+
+4.2 paste.composite_factory
+def composite_factory(loader, global_config, **local_conf):
+    return wsgi_app
+composite的factory函数就是在app factory的基础上增加了loader参数，该参数有一些方法，
+比如get_app(name_or_uri, global_conf=None)返回指定名称的WSGI应用，get_filter、get_server也有着类似的作用。
+下面是一个官方示例：
+def pipeline_factory(loader, global_config, pipeline):
+    # space-separated list of filter and app names:
+    pipeline = pipeline.split()
+    filters = [loader.get_filter(n) for n in pipeline[:-1]]
+    app = loader.get_app(pipeline[-1])
+    filters.reverse()  # apply in reverse order!
+    for filter in filters:
+        app = filter(app)
+    return app
+事实上，这也是一个pipeline factory，这个例子需要搭配PasteDeploy配置文件的具体配置工作，其中的filter、app等也都需要额外实现：
+[composite:main]
+use = <pipeline_factory_uri>
+pipeline = egg:Paste#printdebug session myapp
+
+[filter:session]
+use = egg:Paste#session
+store = memory
+
+[app:myapp]
+use = egg:MyAppp
+这个factory将PasteDeploy配置文件中某个pipeline section的filter与app分离，将位于管道末端的app（myapp）作为参数依次传递给filter（printdebug，session），
+由于filter一旦处理成功也返回一个app，否则拦截用户请求，所以这个过程可以一直持续下去，直至所有的filter对app进行完处理。
+
+4.3 paste.filter_factory
+filter factory与app factory非常相似，只是返回filter而不是WSGI app。filter必须是可调用的，接收WSGI app为唯一的参数，返回处理过的该app。
+官方示例如下：
+def auth_filter_factory(global_conf, req_usernames):
+    # space-separated list of usernames:
+    req_usernames = req_usernames.split()
+    def filter(app):
+        return AuthFilter(app, req_usernames)
+    return filter
+
+class AuthFilter(object):
+    def __init__(self, app, req_usernames):
+        self.app = app
+        self.req_usernames = req_usernames
+
+    def __call__(self, environ, start_response):
+        if environ.get('REMOTE_USER') in self.req_usernames:
+            return self.app(environ, start_response)
+        start_response(
+            '403 Forbidden', [('Content-type', 'text/html')])
+        return ['You are forbidden to view this resource']
+该filter factory产生一个简单的认证过滤器，过滤器工厂函数接收配置参数，进行处理后和app一起传给真正实现过滤器功能的类AuthFilter。
+auth_filter_factory中的filter方法就是封装了具体实现的过滤器，它只接受WSGI app作为自己的参数，具体的配置参数和认证逻辑则由class AuthFilter的实例完成。
+class AuthFilter的实例是一个可调用对象，事实上其__call__方法就是实现了一个符合WSGI规范的app。WSGI app以CGI形式的环境变量environ和回调函数为参数。
+本例的逻辑很简单：如果在server发来的环境信息中包含了外部认证时设置的"REMOTE_USER"，则直接返回传进来的app，否则拒绝用户的认证请求。
+WSGI app通过return语句返回HTTP Response body，由参数中的回调函数返回HTTP响应状态码和HTTP Response header，这都属于WSGI的规范。
+
+4.4 paste.filter_app_factory
 
 补充：
 1.
