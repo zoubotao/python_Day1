@@ -270,6 +270,33 @@ class AuthFilter的实例是一个可调用对象，事实上其__call__方法�
 WSGI app通过return语句返回HTTP Response body，由参数中的回调函数返回HTTP响应状态码和HTTP Response header，这都属于WSGI的规范。
 
 4.4 paste.filter_app_factory
+与filter_factory非常相似，只是接受和返回的均为WSGI app，没有filter。
+4.3的示例中如果进行如下修改：
+class AuthFilter(object):
+    def __init__(self, app, global_conf, req_usernames):
+        ....
+那么class AuthFilter就是一个filter_app_factory，对比4.1的paste.app_factory和4.3的paste.filter_app_factory即可理解。
+
+4.5 paste.server_factory
+返回WSGI server。
+WSGI server接收唯一的参数——WSGI app，并为其服务。一个简单的paste.server_factory例子如下：
+def server_factory(global_conf, host, port):
+    port = init(port)
+    def serve(app):
+        s = Server(app, host=host, port=port)
+        s.serve_forever()
+    return serve
+该工厂函数同样封装了配置参数等信息，返回一个只接收WSGI app做参数的可调用，至于class Server就留待具体实现。
+
+4.6 paste.server_runner
+与paste.server_factory类似，只是WSGI app应该以第一参数传入，同时返回的server要立即运行。
+
+4.7 paste.deploy.wsgi
+paste.deploy.loadwsgi.loadapp(uri, name=None, **kw)
+paste.deploy.loadwsgi.loadserver(uri, name=None, **kw)
+paste.deploy.loadwsgi.loadfilter(uri, name=None, **kw)
+paste.deploy.loadwsgi.appconfig(uri, name=None, relative_to=None, global_conf=None)
+
 
 补充：
 1.
