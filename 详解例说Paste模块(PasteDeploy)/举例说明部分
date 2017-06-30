@@ -1,0 +1,16 @@
+举例验证
+
+管道中的液体，暂且假设为水，假设有一家酒店，有如下URL：
+/master_valve/hydrant  # /总阀/消防栓
+/master_valve/tap  # /总阀/水龙头
+/master_valve/boiler/shower  # /总阀/锅炉/花洒（淋浴房）
+/master_valve/purifier/drinking_fountain  # /总阀/净化器/直饮水机
+
+根据上面的URL我们用paste来描述它们的逻辑关系。
+首先确定关键词：
+composite：master_valve
+filter：purifier，boiler
+app：hydrant，tap，shower，drinking_fountain
+按照这一逻辑，水从总阀中引出后经过管线进入一个多通管道（pipeline），被分别引入消防栓，水龙头，净水器和锅炉。
+从净水器引出后进入直饮水机（app），而从锅炉引出后进入淋浴房的花洒（app）。
+

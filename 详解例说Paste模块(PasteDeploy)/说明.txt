@@ -1,0 +1,36 @@
+使用PasteDeploy定制WSGI服务
+
+一、为什么引入Paste模块？
+一个WSGI服务的核心部分，是它的应用程序。如果一个WSGI服务的应用程序修改了，那么WSGI服务相应的功能也就改变了。
+如果能够通过配置文件来配置WSGI服务的应用程序，那么，当需要对WSGI服务进行修改（需要添加删除某个功能模块）时，
+只需要简单的修改下配置文件，而不需要修改WSGI服务应用程序的代码。
+这样做的话，大大增强WSGI服务的伸缩性。PasteDeploy就是专门定制WSGI服务的开发包。
+
+二、PasteDeploy都有哪些
+PasteDeploy定义的几类部件：
+app（应用程序）：WSGI服务的核心部分，用于实现WSGI服务的主要逻辑。app是一个callable object，接受的参数（environ，start_response），
+这是paste系统交给application的，符合WSGI规范的参数。app需要完成的任务是相应environ中的请求，准备好响应头和消息体，
+然后交给start_response处理，并返回响应消息体。
+filter（过滤器）：一般用于一些准备性的工作，例如验证用户身份、准备服务器环境等。在一个filter执行完之后，可以直接返回，
+也可以交给下一个filter或者app继续执行。filter是一个callable object，其唯一参数是app，这是WSGI的application对象，
+filter需要完成的工作是将application包装成另一个application（“过滤”），并返回这个包装后的application。
+pipeline（管道）：由若干个filter和1个app组成。通过pipeline，可以很容易定制WSGI服务。
+composite（复合体）：用于实现复杂的应用程序，可以进行分支选择。例如：可以根据不同的URL调用不同的处理程序。
+- app_factory是一个callable object，其接受的参数是一些关于application的配置信息：（global_conf，**kwargs），
+global_conf是在ini文件中default section中定义的一系列key-value对，而**kwargs，即一些本地配置，是在ini文件中，
+app:xxx section中定义的一系列key-value对。app_factory返回值是一个application对象。
+- filter_factory是一个callable object，其接受的参数是一系列关于filter的配置信息：（global_conf，**kwargs），
+global_conf是在ini文件中default section中定义的一系列key-value对，而**kwargs，即一些本地配置，是在ini文件中，
+filter:xxx section中定义的一系列key-value对。filter_factory返回一个filter对象。
+
+三、paste的目的与用心
+paste的目的是什么，它要做什么？用过django，flask或者tornado的人知道，一个url一般与一个类或方法对应，以典型的flask为例：
+@app.route('/')
+def index():
+    return 'Index Page'
+@app.route('/hello')
+def hello():
+    return 'Hello World'
+这里可以看到"/"对应了index（），"/hello"对应了hello()。这里的装饰器被称为route。
+但从URL上来说，是存在某种逻辑关系的，这种逻辑关系就像是管道工程！
+这种URL有可能必须经过某个分发（多通管道），又经过某个验证过程（过滤）之后再最终执行某个过程（应用）。
